@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <title>Math Pacman - Integer Addition</title>
+    <style>
+        body { margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh; font-family: 'Courier New', monospace; }
+        #game-container { border: 4px solid #3422DC; background: #000; display: flex; flex-direction: column; position: relative; }
+        canvas { display: block; }
+
+        #nl-section { background: #080810; border-top: 2px solid #222; }
+        #nl-label { color: #555; font-size: 9px; text-align: center; padding: 3px 0 0 0; letter-spacing: 1px; }
+
+        #bottom-ui { display: flex; justify-content: space-around; padding: 10px; color: white; font-size: 15px; border-top: 2px solid #3422DC; background: #000; }
+
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.88); display: none; flex-direction: column; justify-content: center; align-items: center; color: yellow; font-size: 22px; z-index: 10; text-align: center; }
+        #overlay .sub { color: #aaa; font-size: 14px; margin-top: 12px; }
+        button { margin-top: 20px; padding: 12px 24px; cursor: pointer; background: #3422DC; color: white; border: 2px solid white; font-family: inherit; font-weight: bold; font-size: 15px; border-radius: 6px; }
+        button:hover { background: #5544FF; }
+
+        /* ====== FIXED TOOLTIP - on body, position:fixed ====== */
+        #tooltip {
+            position: fixed;
+            display: none;
+            background: linear-gradient(150deg, #12122a, #1a1a3e);
+            border: 2px solid #ffcc00;
+            border-radius: 14px;
+            padding: 16px 20px;
+            color: white;
+            font-size: 12px;
+            z-index: 9999;
+            width: 310px;
+            pointer-events: none;
+            box-shadow: 0 0 30px rgba(255,204,0,0.3), 0 8px 32px rgba(0,0,0,0.8);
+            animation: ttIn 0.25s ease;
+        }
+        @keyframes ttIn {
+            from { opacity: 0; transform: translateY(8px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .tt-title {
+            font-size: 17px; font-weight: bold; color: #ffcc00;
+            text-align: center; margin-bottom: 10px; padding-bottom: 8px;
+            border-bottom: 1px dashed #ffcc0044;
+            text-shadow: 0 0 8px #ffcc0055;
+        }
+        .tt-nl-box {
+            background: rgba(0,0,0,0.4); border-radius: 8px;
+            padding: 6px; margin-bottom: 10px; text-align: center;
+        }
+        .tt-step {
+            margin: 5px 0; padding: 7px 10px;
+            background: rgba(255,255,255,0.04);
+            border-left: 3px solid #3422DC; border-radius: 4px;
+        }
+        .tt-step-label { color: #e94560; font-weight: bold; font-size: 10px; letter-spacing: 0.5px; }
+        .tt-step-text { color: #ccc; margin-top: 2px; line-height: 1.4; }
+        .tt-step-math { color: #00ff88; font-weight: bold; font-size: 14px; margin-top: 2px; }
+        .tt-rule {
+            text-align: center; margin-top: 10px; padding: 8px;
+            background: rgba(255,204,0,0.08); border: 1px solid #ffcc0033;
+            border-radius: 6px; color: #ffcc00; font-size: 11px;
+        }
+        .tt-footer { text-align: center; margin-top: 6px; color: #666; font-size: 10px; }
+
+        /* Arrow pointer on tooltip */
+        #tooltip::after {
+            content: '';
+            position: absolute;
+            width: 12px; height: 12px;
+            background: #12122a;
+            border-right: 2px solid #ffcc00;
+            border-bottom: 2px solid #ffcc00;
+            transform: rotate(-135deg);
+        }
+        #tooltip.arrow-left::after {
+            left: -8px; top: 30px;
+            transform: rotate(135deg);
+        }
+        #tooltip.arrow-right::after {
+            right: -8px; top: 30px;
+            transform: rotate(-45deg);
+        }
+        #tooltip.arrow-top::after {
+            top: -8px; left: 40px;
+            transform: rotate(-135deg);
+        }
+        #tooltip.arrow-bottom::after {
+            bottom: -8px; left: 40px;
+            transform: rotate(45deg);
+        }
+    </style>
+</head>
+<body>
+
+<!-- TOOLTIP LIVES ON BODY - never clipped -->
+<div id="tooltip"></div>
+
+<div id="game-container">
+    <canvas id="canvas" width="420" height="380"></canvas>
+
+    <div id="nl-section">
+        <div id="nl-label">⬅ NEGATIVE ─── NUMBER LINE ─── POSITIVE ➡</div>
+        <canvas id="numberline" width="420" height="55"></canvas>
+    </div>
+
+    <div id="overlay">
+        <div>🎮 Khel Khatam!</div>
+        <div class="sub">Tumne <span id="rules-learned" style="color:#0f0">0</span> / 5 integer rules seekhe</div>
+        <div class="sub">Integer Position: <span id="final-math" style="color:#ffcc00">0</span></div>
+        <button onclick="location.reload()">PHIR SE SHURU KAREIN</button>
+    </div>
+
+    <div id="bottom-ui">
+        <span>SCORE: <span id="score">0</span></span>
+        <span>LIVES: <span id="lives">🟡🟡🟡</span></span>
+        <span>RULES: <span id="rules-count" style="color:#ffcc00">0</span>/5</span>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const nlCanvas = document.getElementById("numberline");
+const nlCtx = nlCanvas.getContext("2d");
+const tooltipEl = document.getElementById("tooltip");
+const size = 20;
+
+let score = 0, lives = 3, powerMode = false, powerTimer = 0;
+let mouthOpen = 0, gameRunning = true;
+let mathValue = 0;
+let displayedMathValue = 0;
+let lastEatType = null;
+let lastEatTimer = 0;
+let learnedRule = null;
+let learnedTimer = 0;
+let hoveredRule = null;
+
+const mathRules = [
+    {
+        r:2, c:10, text:"5+(-1)=4", color:"#FF4D4D", eaten:false,
+        nlStart:5, nlMove:-1, nlResult:4,
+        steps: [
+            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+5</b> se shuru karo", math:"+5" },
+            { label:"Step 2 — Operation Samjho", text:"<b>+(-1)</b> ka matlab hai: <b>1 ghatao</b>", math:"+(-1) → minus 1" },
+            { label:"Step 3 — Number Line pe Chalo", text:"+5 se <b>1 kadam LEFT</b> jao (minus = left)", math:"5 ← 1" },
+            { label:"Step 4 — Jawab!", text:"Hum <b>4</b> pe pahunch gaye!", math:"5 + (-1) = 4 ✅" }
+        ],
+        rule: "➕ + (➖) = Fark nikalo, bade ka sign rakho"
+    },
+    {
+        r:4, c:13, text:"-1+5=+4", color:"#FF6D6D", eaten:false,
+        nlStart:-1, nlMove:5, nlResult:4,
+        steps: [
+            { label:"Step 1 — Pehla Number", text:"Number line pe <b>-1</b> se shuru karo (negative side!)", math:"-1" },
+            { label:"Step 2 — Operation Samjho", text:"<b>+5</b> ka matlab hai: <b>5 jodo</b> (plus = right)", math:"+5 → right chalo" },
+            { label:"Step 3 — Number Line pe Chalo", text:"-1 se <b>5 kadam RIGHT</b> chalo", math:"-1 → 0 → 1 → 2 → 3 → 4" },
+            { label:"Step 4 — Jawab!", text:"Hum <b>+4</b> pe pahunch gaye!", math:"-1 + 5 = +4 ✅" }
+        ],
+        rule: "➖ + ➕ = Fark nikalo, bade ka sign rakho"
+    },
+    {
+        r:9, c:13, text:"+1+1=+2", color:"#FFFF4D", eaten:false,
+        nlStart:1, nlMove:1, nlResult:2,
+        steps: [
+            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+1</b> se shuru karo", math:"+1" },
+            { label:"Step 2 — Operation Samjho", text:"<b>+1</b> ka matlab hai: <b>1 aur jodo</b>", math:"+1 → right chalo" },
+            { label:"Step 3 — Number Line pe Chalo", text:"+1 se <b>1 kadam RIGHT</b> chalo", math:"1 → 2" },
+            { label:"Step 4 — Jawab!", text:"Bahut easy! Dono positive = jodo!", math:"+1 + 1 = +2 ✅" }
+        ],
+        rule: "➕ + ➕ = Dono jodo, sign POSITIVE (+) rahega"
+    },
+    {
+        r:10, c:15, text:"+1+(-3)=-2", color:"#4DFF4D", eaten:false,
+        nlStart:1, nlMove:-3, nlResult:-2,
+        steps: [
+            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+1</b> se shuru karo", math:"+1" },
+            { label:"Step 2 — Operation Samjho", text:"<b>+(-3)</b> ka matlab hai: <b>3 ghatao</b>", math:"+(-3) → minus 3" },
+            { label:"Step 3 — Number Line pe Chalo", text:"+1 se <b>3 kadam LEFT</b> chalo", math:"1 → 0 → -1 → -2" },
+            { label:"Step 4 — Jawab!", text:"Hum <b>-2</b> pe pahunch gaye! (Negative side mein!)", math:"+1 + (-3) = -2 ✅" }
+        ],
+        rule: "➕ + (➖) = Fark nikalo, bade (3) ka sign (-) rakho"
+    },
+    {
+        r:17, c:10, text:"-5+(-1)=-6", color:"#AA4DFF", eaten:false,
+        nlStart:-5, nlMove:-1, nlResult:-6,
+        steps: [
+            { label:"Step 1 — Pehla Number", text:"Number line pe <b>-5</b> se shuru karo (deep negative!)", math:"-5" },
+            { label:"Step 2 — Operation Samjho", text:"<b>+(-1)</b> ka matlab hai: <b>1 aur ghatao</b>", math:"+(-1) → minus 1" },
+            { label:"Step 3 — Yaad Rakho!", text:"Negative + Negative = <b>dono jodo, sign negative rakho!</b>", math:"(-) + (-) = minus" },
+            { label:"Step 4 — Number Line pe Chalo", text:"-5 se <b>1 kadam LEFT</b> chalo (aur negative!)", math:"-5 → -6" },
+            { label:"Step 5 — Jawab!", text:"Hum <b>-6</b> pe pahunch gaye!", math:"-5 + (-1) = -6 ✅" }
+        ],
+        rule: "➖ + (➖) = Dono jodo, sign NEGATIVE (-) rahega"
+    }
+];
+
+let map = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+    [1,0,1,1,0,1,0,1,1,0,1,0,1,1,0,1,0,1,1,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,0,1,1],
+    [1,0,0,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0,0,0,1],
+    [1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,0,1,0,1,0,1],
+    [1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1],
+    [1,0,1,1,0,1,0,1,1,0,0,0,1,1,0,1,0,1,1,0,1],
+    [1,0,0,0,0,1,0,0,0,0,0,0,0,1,0,1,0,0,0,0,1],
+    [1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1],
+    [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
+    [1,1,1,1,0,1,0,1,1,1,1,1,1,1,0,1,0,1,1,1,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+    [1,0,1,1,1,0,1,1,1,0,1,0,1,1,1,0,1,1,1,0,1],
+    [1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+
+let pacman = { x: size, y: size, dir: "right", nextDir: "right" };
+
+let ghosts = [
+    { x:10*size, y:9*size, color:"#FF0000", dir:"up", startX:10*size, startY:9*size },
+    { x:8*size, y:5*size, color:"#FFB8FF", dir:"left", startX:8*size, startY:5*size },
+    { x:12*size, y:5*size, color:"#00FFFF", dir:"right", startX:12*size, startY:5*size },
+    { x:10*size, y:15*size, color:"#FFB852", dir:"down", startX:10*size, startY:15*size }
+];
+
+// ==================== TOOLTIP POSITIONING (FIXED) ====================
+
+function positionTooltip(e, rule) {
+    const ttWidth = 310;
+    const ttHeight = tooltipEl.offsetHeight || 380;
+    const pad = 15;
+    const viewW = window.innerWidth;
+    const viewH = window.innerHeight;
+
+    // Get bubble position on screen
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / canvas.width;
+    const scaleY = canvasRect.height / canvas.height;
+    const bubbleScreenX = canvasRect.left + (rule.c * size + 10) * scaleX;
+    const bubbleScreenY = canvasRect.top + (rule.r * size + 10) * scaleY;
+
+    let tx, ty;
+    let arrowClass = "";
+
+    // Try RIGHT of bubble first
+    tx = bubbleScreenX + 30;
+    ty = bubbleScreenY - ttHeight / 2;
+
+    if (tx + ttWidth + pad > viewW) {
+        // Try LEFT of bubble
+        tx = bubbleScreenX - ttWidth - 30;
+        arrowClass = "arrow-right";
+        if (tx < pad) {
+            // Try BELOW bubble
+            tx = bubbleScreenX - ttWidth / 2;
+            ty = bubbleScreenY + 30;
+            arrowClass = "arrow-top";
+            if (ty + ttHeight + pad > viewH) {
+                // Try ABOVE bubble
+                ty = bubbleScreenY - ttHeight - 30;
+                arrowClass = "arrow-bottom";
+            }
+        }
+    } else {
+        arrowClass = "arrow-left";
+    }
+
+    // Clamp to viewport
+    if (tx < pad) tx = pad;
+    if (tx + ttWidth > viewW - pad) tx = viewW - ttWidth - pad;
+    if (ty < pad) ty = pad;
+    if (ty + ttHeight > viewH - pad) ty = viewH - ttHeight - pad;
+
+    tooltipEl.style.left = tx + "px";
+    tooltipEl.style.top = ty + "px";
+    tooltipEl.className = arrowClass;
+}
+
+// ==================== TOOLTIP HOVER DETECTION ====================
+
+canvas.addEventListener("mousemove", function(e) {
+    if (!gameRunning) { tooltipEl.style.display = "none"; hoveredRule = null; return; }
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    let found = null;
+    for (let rule of mathRules) {
+        if (rule.eaten) continue;
+        let cx = rule.c * size + 10;
+        let cy = rule.r * size + 10;
+        if (Math.hypot(mx - cx, my - cy) < 28) { found = rule; break; }
+    }
+
+    if (found && found !== hoveredRule) {
+        hoveredRule = found;
+        buildTooltip(found);
+        tooltipEl.style.display = "block";
+        // Need small delay so offsetHeight is calculated
+        requestAnimationFrame(() => positionTooltip(e, found));
+    } else if (found && found === hoveredRule) {
+        positionTooltip(e, found);
+    } else if (!found && hoveredRule) {
+        hoveredRule = null;
+        tooltipEl.style.display = "none";
+    }
+});
+
+canvas.addEventListener("mouseleave", function() {
+    hoveredRule = null;
+    tooltipEl.style.display = "none";
+});
+
+function buildTooltip(rule) {
+    let html = `<div class="tt-title">📐 ${rule.text}</div>`;
+    html += `<div class="tt-nl-box"><canvas id="tt-nl-canvas" width="275" height="65"></canvas></div>`;
+
+    rule.steps.forEach(s => {
+        html += `<div class="tt-step">
+            <div class="tt-step-label">📌 ${s.label}</div>
+            <div class="tt-step-text">${s.text}</div>
+            <div class="tt-step-math">${s.math}</div>
+        </div>`;
+    });
+
+    html += `<div class="tt-rule">💡 Rule: ${rule.rule}</div>`;
+    html += `<div class="tt-footer">🎮 Isse khao → Power Mode ON + 100 Points!</div>`;
+
+    tooltipEl.innerHTML = html;
+    requestAnimationFrame(() => drawTooltipNL(rule));
+}
+
+function drawTooltipNL(rule) {
+    const c = document.getElementById("tt-nl-canvas");
+    if (!c) return;
+    const g = c.getContext("2d");
+    const w = c.width, h = c.height;
+    g.clearRect(0, 0, w, h);
+
+    const minV = Math.min(rule.nlStart, rule.nlResult, 0) - 2;
+    const maxV = Math.max(rule.nlStart, rule.nlResult, 0) + 2;
+    const margin = 25;
+    const toX = v => margin + ((v - minV) / (maxV - minV)) * (w - margin * 2);
+
+    // Main line
+    g.strokeStyle = "#555"; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(margin - 5, 38); g.lineTo(w - margin + 5, 38); g.stroke();
+
+    // Arrow heads on line
+    g.fillStyle = "#555";
+    g.beginPath(); g.moveTo(margin - 10, 38); g.lineTo(margin - 3, 34); g.lineTo(margin - 3, 42); g.fill();
+    g.beginPath(); g.moveTo(w - margin + 10, 38); g.lineTo(w - margin + 3, 34); g.lineTo(w - margin + 3, 42); g.fill();
+
+    // Ticks & numbers
+    for (let i = Math.ceil(minV); i <= Math.floor(maxV); i++) {
+        let x = toX(i);
+        let isZero = i === 0;
+        let isKey = i === rule.nlStart || i === rule.nlResult;
+
+        g.strokeStyle = isZero ? "#ffcc00" : (isKey ? "#aaa" : "#444");
+        g.lineWidth = isZero ? 2.5 : 1;
+        g.beginPath(); g.moveTo(x, 32); g.lineTo(x, 44); g.stroke();
+
+        g.fillStyle = isZero ? "#ffcc00" : (isKey ? "#fff" : "#777");
+        g.font = (isZero || isKey) ? "bold 10px Arial" : "9px Arial";
+        g.textAlign = "center";
+        g.fillText(i, x, 57);
+    }
+
+    // Curved arrow
+    let sx = toX(rule.nlStart);
+    let ex = toX(rule.nlResult);
+
+    g.strokeStyle = "#00ff88"; g.lineWidth = 2.5;
+    g.setLineDash([5, 3]);
+    g.beginPath();
+    g.moveTo(sx, 30);
+    g.quadraticCurveTo((sx + ex) / 2, 2, ex, 30);
+    g.stroke();
+    g.setLineDash([]);
+
+    // Arrow head
+    let arrowDir = ex > sx ? 1 : -1;
+    g.fillStyle = "#00ff88";
+    g.beginPath();
+    g.moveTo(ex, 26);
+    g.lineTo(ex - arrowDir * 6, 18);
+    g.lineTo(ex + arrowDir * 2, 18);
+    g.fill();
+
+    // Start dot
+    g.fillStyle = "#e94560";
+    g.beginPath(); g.arc(sx, 38, 5, 0, Math.PI * 2); g.fill();
+    g.fillStyle = "#fff"; g.font = "bold 8px Arial";
+    g.fillText("START", sx, 15);
+
+    // End dot
+    g.fillStyle = "#00ff88";
+    g.beginPath(); g.arc(ex, 38, 5, 0, Math.PI * 2); g.fill();
+
+    // Move label
+    let moveLabel = rule.nlMove > 0 ? `+${rule.nlMove} →` : `${rule.nlMove} ←`;
+    g.fillStyle = "#ffcc00"; g.font = "bold 11px Arial";
+    g.fillText(moveLabel, (sx + ex) / 2, 10);
+}
+
+// ==================== BOTTOM NUMBER LINE ====================
+
+function drawNumberLine() {
+    const w = nlCanvas.width, h = nlCanvas.height;
+    nlCtx.clearRect(0, 0, w, h);
+    nlCtx.fillStyle = "#080810";
+    nlCtx.fillRect(0, 0, w, h);
+
+    displayedMathValue += (mathValue - displayedMathValue) * 0.12;
+
+    let absMax = Math.max(12, Math.abs(mathValue) + 5);
+    let minV = -absMax, maxV = absMax;
+    let margin = 30;
+    let toX = v => margin + ((v - minV) / (maxV - minV)) * (w - margin * 2);
+
+    let zeroX = toX(0);
+    nlCtx.fillStyle = "rgba(255,50,50,0.06)";
+    nlCtx.fillRect(margin, 5, zeroX - margin, 35);
+    nlCtx.fillStyle = "rgba(50,255,50,0.06)";
+    nlCtx.fillRect(zeroX, 5, w - margin - zeroX, 35);
+
+    nlCtx.strokeStyle = "#444"; nlCtx.lineWidth = 2;
+    nlCtx.beginPath(); nlCtx.moveTo(margin, 25); nlCtx.lineTo(w - margin, 25); nlCtx.stroke();
+
+    let step = absMax > 20 ? 5 : (absMax > 12 ? 2 : 1);
+    for (let i = Math.ceil(minV); i <= Math.floor(maxV); i++) {
+        let x = toX(i);
+        let isZero = i === 0;
+        let show = (i % step === 0) || isZero;
+
+        nlCtx.strokeStyle = isZero ? "#ffcc00" : "#333";
+        nlCtx.lineWidth = isZero ? 3 : 1;
+        nlCtx.beginPath(); nlCtx.moveTo(x, 19); nlCtx.lineTo(x, 31); nlCtx.stroke();
+
+        if (show) {
+            nlCtx.fillStyle = isZero ? "#ffcc00" : (i > 0 ? "#5a5" : "#a55");
+            nlCtx.font = isZero ? "bold 11px Arial" : "9px Arial";
+            nlCtx.textAlign = "center";
+            nlCtx.fillText(i, x, 44);
+        }
+    }
+
+    let px = toX(displayedMathValue);
+    let pulse = Math.sin(Date.now() / 200) * 2 + 7;
+    nlCtx.shadowColor = "#ffcc00"; nlCtx.shadowBlur = 10;
+    nlCtx.fillStyle = "#ffcc00";
+    nlCtx.beginPath(); nlCtx.arc(px, 25, pulse, 0, Math.PI * 2); nlCtx.fill();
+    nlCtx.shadowBlur = 0;
+
+    let valStr = mathValue >= 0 ? "+" + mathValue : "" + mathValue;
+    nlCtx.fillStyle = "#fff"; nlCtx.font = "bold 11px Arial"; nlCtx.textAlign = "center";
+    nlCtx.fillText(valStr, px, 10);
+
+    if (lastEatTimer > 0) {
+        let alpha = lastEatTimer / 60;
+        nlCtx.globalAlpha = alpha;
+        nlCtx.fillStyle = lastEatType === "+1" ? "#00ff88" : "#ff5555";
+        nlCtx.font = "bold 13px Arial";
+        nlCtx.textAlign = "center";
+        nlCtx.fillText(lastEatType === "+1" ? "→ +1" : "← -1", px + (lastEatType === "+1" ? 30 : -30), 12);
+        nlCtx.globalAlpha = 1;
+    }
+}
+
+// ==================== MOVEMENT ====================
+
+function canMove(x, y, direction) {
+    let nx = x, ny = y, speed = 2;
+    if (direction === "right") nx += speed;
+    if (direction === "left") nx -= speed;
+    if (direction === "up") ny -= speed;
+    if (direction === "down") ny += speed;
+    let r1 = Math.floor((ny + 3) / size), c1 = Math.floor((nx + 3) / size);
+    let r2 = Math.floor((ny + 17) / size), c2 = Math.floor((nx + 17) / size);
+    return (map[r1] && map[r1][c1] !== 1 && map[r1][c2] !== 1 && map[r2][c1] !== 1 && map[r2][c2] !== 1);
+}
+
+// ==================== DRAW ====================
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    for (let r = 0; r < map.length; r++) {
+        for (let c = 0; c < map[r].length; c++) {
+            if (map[r][c] === 1) {
+                ctx.fillStyle = "#3422DC"; ctx.fillRect(c*size, r*size, size, size);
+                ctx.strokeStyle = "#1a1188"; ctx.strokeRect(c*size+2, r*size+2, size-4, size-4);
+            } else if (map[r][c] === 0) {
+                let isPlus = (r + c) % 2 === 0;
+                ctx.fillStyle = isPlus ? "#00FF00" : "#FF5555";
+                ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
+                ctx.fillText(isPlus ? "+" : "−", c*size+10, r*size+15);
+            }
+        }
+    }
+
+    // Math rule bubbles
+    let pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
+    mathRules.forEach(rule => {
+        if (rule.eaten) return;
+
+        ctx.shadowColor = rule.color; ctx.shadowBlur = 15 * pulse;
+        ctx.beginPath(); ctx.arc(rule.c*size+10, rule.r*size+10, 18, 0, Math.PI*2);
+        ctx.fillStyle = rule.color + "77"; ctx.fill();
+        ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        ctx.beginPath(); ctx.arc(rule.c*size+10, rule.r*size+10, 13, 0, Math.PI*2);
+        ctx.strokeStyle = rule.color + "aa"; ctx.lineWidth = 1; ctx.stroke();
+
+        ctx.fillStyle = "white"; ctx.font = "bold 8px Arial"; ctx.textAlign = "center";
+        ctx.fillText(rule.text, rule.c*size+10, rule.r*size+13);
+
+        // Hover ring
+        if (hoveredRule === rule) {
+            ctx.beginPath(); ctx.arc(rule.c*size+10, rule.r*size+10, 24, 0, Math.PI*2);
+            ctx.strokeStyle = "#ffcc00"; ctx.lineWidth = 2;
+            ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
+            ctx.fillStyle = "#ffcc00"; ctx.font = "bold 7px Arial";
+            ctx.fillText("👆 PADHO!", rule.c*size+10, rule.r*size-14);
+        }
+    });
+
+    // Pacman
+    ctx.save(); ctx.translate(pacman.x+10, pacman.y+10);
+    if (pacman.dir === "left") ctx.rotate(Math.PI);
+    else if (pacman.dir === "up") ctx.rotate(-Math.PI/2);
+    else if (pacman.dir === "down") ctx.rotate(Math.PI/2);
+    ctx.fillStyle = powerMode ? "#ff8800" : "yellow";
+    ctx.beginPath();
+    let a = 0.2 * Math.sin(mouthOpen) + 0.2;
+    ctx.arc(0, 0, 9, a*Math.PI, (2-a)*Math.PI); ctx.lineTo(0,0); ctx.fill();
+    ctx.fillStyle = "#000"; ctx.beginPath(); ctx.arc(2, -4, 1.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // Ghosts
+    ghosts.forEach(g => {
+        let x = g.x+2, y = g.y+2;
+        ctx.fillStyle = powerMode ? "#2121ff" : g.color;
+        ctx.beginPath();
+        ctx.arc(x+8, y+8, 8, Math.PI, 0);
+        ctx.lineTo(x+16, y+16); ctx.lineTo(x+12, y+14);
+        ctx.lineTo(x+8, y+16); ctx.lineTo(x+4, y+14);
+        ctx.lineTo(x, y+16); ctx.fill();
+
+        ctx.fillStyle = powerMode ? "#fff" : "white";
+        ctx.beginPath(); ctx.arc(x+5, y+6, 2.5, 0, Math.PI*2); ctx.arc(x+11, y+6, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = powerMode ? "#ff0" : "#000";
+        ctx.beginPath(); ctx.arc(x+5, y+6, 1, 0, Math.PI*2); ctx.arc(x+11, y+6, 1, 0, Math.PI*2); ctx.fill();
+
+        if (powerMode) {
+            ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.beginPath();
+            ctx.moveTo(x+3, y+12); ctx.lineTo(x+5, y+11); ctx.lineTo(x+7, y+12);
+            ctx.lineTo(x+9, y+11); ctx.lineTo(x+11, y+12); ctx.lineTo(x+13, y+11); ctx.stroke();
+        }
+    });
+
+    // Power mode bar
+    if (powerMode) {
+        let barW = (powerTimer / 400) * 100;
+        ctx.fillStyle = "#222"; ctx.fillRect(160, 2, 104, 8);
+        ctx.fillStyle = powerTimer > 100 ? "#00ff88" : "#ff4444";
+        ctx.fillRect(162, 4, barW, 4);
+        ctx.strokeStyle = "#fff"; ctx.strokeRect(160, 2, 104, 8);
+        ctx.fillStyle = "#fff"; ctx.font = "7px Arial"; ctx.textAlign = "center";
+        ctx.fillText("⚡ POWER MODE", 212, 9);
+    }
+
+    // Learned rule display
+    if (learnedRule && learnedTimer > 0) {
+        let alpha = Math.min(1, learnedTimer / 40);
+        ctx.save(); ctx.globalAlpha = alpha * 0.92;
+
+        ctx.fillStyle = "#000"; ctx.fillRect(40, 130, 340, 110);
+        ctx.strokeStyle = learnedRule.color; ctx.lineWidth = 3;
+        ctx.strokeRect(40, 130, 340, 110);
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = "#ffcc00"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
+        ctx.fillText("✅ RULE SEEKH LIYA!", 210, 152);
+
+        ctx.fillStyle = "#fff"; ctx.font = "bold 22px Arial";
+        ctx.fillText(learnedRule.text, 210, 182);
+
+        ctx.fillStyle = learnedRule.color; ctx.font = "11px Arial";
+        ctx.fillText(learnedRule.rule, 210, 205);
+
+        ctx.fillStyle = "#00ff88"; ctx.font = "bold 10px Arial";
+        ctx.fillText("🔥 Power Mode ON! Bhooton ko khao!", 210, 228);
+
+        ctx.restore();
+    }
+}
+
+// ==================== UPDATE ====================
+
+function update() {
+    if (!gameRunning) return;
+    mouthOpen += 0.25;
+    if (lastEatTimer > 0) lastEatTimer--;
+    if (learnedTimer > 0) learnedTimer--;
+
+    if (powerMode) { powerTimer--; if (powerTimer <= 0) powerMode = false; }
+
+    if (canMove(pacman.x, pacman.y, pacman.nextDir)) pacman.dir = pacman.nextDir;
+
+    if (canMove(pacman.x, pacman.y, pacman.dir)) {
+        if (pacman.dir === "right") pacman.x += 2;
+        else if (pacman.dir === "left") pacman.x -= 2;
+        if (pacman.dir === "up") pacman.y -= 2;
+        else if (pacman.dir === "down") pacman.y += 2;
+
+        let pr = Math.floor((pacman.y+10)/size), pc = Math.floor((pacman.x+10)/size);
+
+        if (map[pr] && map[pr][pc] === 0) {
+            map[pr][pc] = 2;
+            let isPlus = (pr + pc) % 2 === 0;
+            mathValue += isPlus ? 1 : -1;
+            lastEatType = isPlus ? "+1" : "-1";
+            lastEatTimer = 50;
+            score += 10;
+            document.getElementById("score").innerText = score;
+        }
+
+        mathRules.forEach(rule => {
+            if (!rule.eaten && Math.abs(pacman.x - rule.c*size) < 15 && Math.abs(pacman.y - rule.r*size) < 15) {
+                rule.eaten = true;
+                powerMode = true;
+                powerTimer = 400;
+                score += 100;
+                learnedRule = rule;
+                learnedTimer = 180;
+                document.getElementById("score").innerText = score;
+                let learned = mathRules.filter(r => r.eaten).length;
+                document.getElementById("rules-count").innerText = learned;
+                // Hide tooltip since bubble is eaten
+                hoveredRule = null;
+                tooltipEl.style.display = "none";
+            }
+        });
+    }
+
+    // Ghosts
+    ghosts.forEach(g => {
+        if (!canMove(g.x, g.y, g.dir) || Math.random() < 0.02) {
+            let dirs = ["up","down","left","right"];
+            g.dir = dirs[Math.floor(Math.random()*4)];
+        }
+        if (canMove(g.x, g.y, g.dir)) {
+            let speed = powerMode ? 1 : 1.5;
+            if (g.dir === "right") g.x += speed;
+            else if (g.dir === "left") g.x -= speed;
+            if (g.dir === "up") g.y -= speed;
+            else if (g.dir === "down") g.y += speed;
+        }
+
+        if (Math.abs(pacman.x - g.x) < 15 && Math.abs(pacman.y - g.y) < 15) {
+            if (powerMode) {
+                score += 200; g.x = g.startX; g.y = g.startY;
+                document.getElementById("score").innerText = score;
+            } else {
+                lives--;
+                document.getElementById("lives").innerText = "🟡".repeat(Math.max(lives, 0));
+                pacman.x = size; pacman.y = size; pacman.dir = "right"; pacman.nextDir = "right";
+                if (lives <= 0) {
+                    gameRunning = false;
+                    document.getElementById("rules-learned").innerText = mathRules.filter(r => r.eaten).length;
+                    document.getElementById("final-math").innerText = (mathValue >= 0 ? "+" : "") + mathValue;
+                    document.getElementById("overlay").style.display = "flex";
+                    tooltipEl.style.display = "none";
+                }
+            }
+        }
+    });
+}
+
+// ==================== GAME LOOP ====================
+
+function gameLoop() {
+    update(); draw(); drawNumberLine();
+    if (gameRunning) requestAnimationFrame(gameLoop);
+}
+
+window.addEventListener("keydown", (e) => {
+    let d = e.key.replace("Arrow","").toLowerCase();
+    if (["up","down","left","right"].includes(d)) { e.preventDefault(); pacman.nextDir = d; }
+});
+
+let tx0=0, ty0=0;
+canvas.addEventListener("touchstart", e => { tx0=e.touches[0].clientX; ty0=e.touches[0].clientY; });
+canvas.addEventListener("touchend", e => {
+    let dx=e.changedTouches[0].clientX-tx0, dy=e.changedTouches[0].clientY-ty0;
+    if(Math.abs(dx)>Math.abs(dy)) pacman.nextDir=dx>0?"right":"left";
+    else pacman.nextDir=dy>0?"down":"up";
+});
+
+gameLoop();
+</script>
+</body>
+</html>
