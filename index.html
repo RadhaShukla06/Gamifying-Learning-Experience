@@ -18,7 +18,6 @@
         button { margin-top: 20px; padding: 12px 24px; cursor: pointer; background: #3422DC; color: white; border: 2px solid white; font-family: inherit; font-weight: bold; font-size: 15px; border-radius: 6px; }
         button:hover { background: #5544FF; }
 
-        /* ====== FIXED TOOLTIP - on body, position:fixed ====== */
         #tooltip {
             position: fixed;
             display: none;
@@ -63,7 +62,6 @@
         }
         .tt-footer { text-align: center; margin-top: 6px; color: #666; font-size: 10px; }
 
-        /* Arrow pointer on tooltip */
         #tooltip::after {
             content: '';
             position: absolute;
@@ -93,7 +91,6 @@
 </head>
 <body>
 
-<!-- TOOLTIP LIVES ON BODY - never clipped -->
 <div id="tooltip"></div>
 
 <div id="game-container">
@@ -126,25 +123,292 @@ const nlCtx = nlCanvas.getContext("2d");
 const tooltipEl = document.getElementById("tooltip");
 const size = 20;
 
-// ==================== AUDIO ====================
-const bgMusic = new Audio("during_game.mpeg");
-bgMusic.loop = true;
-bgMusic.volume = 0.5;
+// ==================== PROCEDURAL AUDIO ENGINE ====================
 
-const gameOverSound = new Audio("after_game_ends.ogg");
-gameOverSound.volume = 0.7;
-
+let audioCtx = null;
+let masterGain = null;
+let musicPlaying = false;
+let musicTimer = null;
+let musicNoteIdx = 0;
+let musicNextTime = 0;
 let audioStarted = false;
-function startBgMusic() {
-    if (!audioStarted) {
+
+const NOTE_FREQ = {
+    'R':0,
+    'C3':130.81,'D3':146.83,'E3':164.81,'F3':174.61,'G3':196.00,'A3':220.00,'Bb3':233.08,'B3':246.94,
+    'C4':261.63,'D4':293.66,'E4':329.63,'F4':349.23,'G4':392.00,'A4':440.00,'Bb4':466.16,'B4':493.88,
+    'C5':523.25,'D5':587.33,'E5':659.25,'F5':698.46,'G5':783.99,'A5':880.00,'Bb5':932.33,'B5':987.77,
+    'C6':1046.50
+};
+
+// Energetic 8-bit arcade melody (32 eighth notes = 4 bars)
+const MELODY = [
+    'C5','D5','E5','G5',  'A5','G5','E5','D5',
+    'E5','F5','G5','A5',  'G5','F5','E5','C5',
+    'C6','B5','A5','G5',  'A5','B5','C6','G5',
+    'A5','G5','E5','D5',  'C5','D5','E5','C5'
+];
+
+const BASS = [
+    'C3','C3','C3','C3',  'C3','C3','C3','C3',
+    'F3','F3','F3','F3',  'F3','F3','F3','F3',
+    'A3','A3','A3','A3',  'A3','A3','A3','A3',
+    'G3','G3','G3','G3',  'G3','G3','G3','G3'
+];
+
+// Arpeggio accent layer
+const ARP = [
+    'E5','G5','C6','G5',  'E5','G5','C6','G5',
+    'F5','A5','C6','A5',  'F5','A5','C6','A5',
+    'A5','C6','E5','C6',  'A5','C6','E5','C6',
+    'G5','B5','D5','B5',  'G5','B5','D5','G5'
+];
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.45;
+    masterGain.connect(audioCtx.destination);
+}
+
+function playTone(freq, time, dur, type, vol) {
+    if (!freq || !audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, time);
+    g.gain.setValueAtTime(vol, time);
+    g.gain.setValueAtTime(vol * 0.9, time + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.95);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(time);
+    osc.stop(time + dur);
+}
+
+function playKick(time) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(160, time);
+    osc.frequency.exponentialRampToValueAtTime(30, time + 0.12);
+    g.gain.setValueAtTime(0.25, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.12);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(time); osc.stop(time + 0.15);
+}
+
+function playSnare(time) {
+    if (!audioCtx) return;
+    const bufLen = audioCtx.sampleRate * 0.08;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'highpass'; filt.frequency.value = 3000;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.08, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.08);
+    src.connect(filt); filt.connect(g); g.connect(masterGain);
+    src.start(time); src.stop(time + 0.1);
+
+    // Body tone
+    const osc = audioCtx.createOscillator();
+    const g2 = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(200, time);
+    osc.frequency.exponentialRampToValueAtTime(80, time + 0.06);
+    g2.gain.setValueAtTime(0.12, time);
+    g2.gain.exponentialRampToValueAtTime(0.001, time + 0.06);
+    osc.connect(g2); g2.connect(masterGain);
+    osc.start(time); osc.stop(time + 0.08);
+}
+
+function playHihat(time) {
+    if (!audioCtx) return;
+    const bufLen = audioCtx.sampleRate * 0.03;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'highpass'; filt.frequency.value = 9000;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.04, time);
+    g.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
+    src.connect(filt); filt.connect(g); g.connect(masterGain);
+    src.start(time); src.stop(time + 0.04);
+}
+
+function scheduleNote() {
+    const TEMPO = 200;
+    const beatDur = 60 / TEMPO;
+    const idx = musicNoteIdx % MELODY.length;
+    const t = musicNextTime;
+
+    // Melody — square wave
+    playTone(NOTE_FREQ[MELODY[idx]], t, beatDur * 0.7, 'square', 0.09);
+
+    // Bass — triangle wave
+    playTone(NOTE_FREQ[BASS[idx]], t, beatDur * 0.9, 'triangle', 0.12);
+
+    // Arpeggio accent — pulse-like square, quieter
+    if (musicNoteIdx % 2 === 0) {
+        playTone(NOTE_FREQ[ARP[idx]], t, beatDur * 0.35, 'square', 0.03);
+    }
+
+    // Drums
+    if (musicNoteIdx % 4 === 0) playKick(t);           // Kick on 1, 3
+    if (musicNoteIdx % 4 === 2) playSnare(t);           // Snare on 2, 4
+    if (musicNoteIdx % 2 === 1) playHihat(t);           // Hi-hat on off-beats
+
+    musicNoteIdx++;
+    musicNextTime += beatDur;
+}
+
+function musicScheduler() {
+    if (!musicPlaying) return;
+    while (musicNextTime < audioCtx.currentTime + 0.15) {
+        scheduleNote();
+    }
+    musicTimer = setTimeout(musicScheduler, 30);
+}
+
+function startMusic() {
+    if (musicPlaying) return;
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    musicPlaying = true;
+    musicNoteIdx = 0;
+    musicNextTime = audioCtx.currentTime + 0.05;
+    musicScheduler();
+}
+
+function stopMusic() {
+    musicPlaying = false;
+    if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; }
+}
+
+function playGameOverSound() {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+
+    // Dramatic descending notes
+    const notes = [
+        { note: 'G4', time: 0,    dur: 0.35 },
+        { note: 'F4', time: 0.4,  dur: 0.35 },
+        { note: 'E4', time: 0.8,  dur: 0.35 },
+        { note: 'C4', time: 1.3,  dur: 2.0  }
+    ];
+
+    notes.forEach(n => {
+        const freq = NOTE_FREQ[n.note] || 261.63;
+
+        // Main voice
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(freq, now + n.time);
+
+        // Vibrato on final long note
+        if (n.dur > 1) {
+            const vib = audioCtx.createOscillator();
+            const vibG = audioCtx.createGain();
+            vib.frequency.value = 5;
+            vibG.gain.value = 10;
+            vib.connect(vibG);
+            vibG.connect(osc.frequency);
+            vib.start(now + n.time);
+            vib.stop(now + n.time + n.dur);
+        }
+
+        g.gain.setValueAtTime(0.14, now + n.time);
+        g.gain.setValueAtTime(0.12, now + n.time + n.dur * 0.7);
+        g.gain.linearRampToValueAtTime(0, now + n.time + n.dur);
+        osc.connect(g); g.connect(masterGain);
+        osc.start(now + n.time);
+        osc.stop(now + n.time + n.dur + 0.1);
+
+        // Sub bass layer
+        const osc2 = audioCtx.createOscillator();
+        const g2 = audioCtx.createGain();
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(freq / 2, now + n.time);
+        g2.gain.setValueAtTime(0.1, now + n.time);
+        g2.gain.linearRampToValueAtTime(0, now + n.time + n.dur);
+        osc2.connect(g2); g2.connect(masterGain);
+        osc2.start(now + n.time);
+        osc2.stop(now + n.time + n.dur + 0.1);
+    });
+}
+
+// Eat sound effect
+function playEatSound(isPositive) {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const freq = isPositive ? 600 : 300;
+    playTone(freq, now, 0.08, 'square', 0.06);
+    playTone(freq * 1.5, now + 0.05, 0.06, 'square', 0.04);
+}
+
+// Power-up sound effect
+function playPowerUpSound() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const sweep = [523, 659, 784, 1047, 1319, 1568];
+    sweep.forEach((f, i) => {
+        playTone(f, now + i * 0.06, 0.12, 'square', 0.07);
+    });
+}
+
+// Ghost eaten sound
+function playGhostEatSound() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.15);
+    g.gain.setValueAtTime(0.1, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.25);
+}
+
+// Life lost sound
+function playLifeLostSound() {
+    if (!audioCtx) return;
+    const now = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.linearRampToValueAtTime(0, now + 0.5);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(now); osc.stop(now + 0.55);
+}
+
+// Start music on first user interaction
+function tryStartMusic() {
+    if (!audioStarted && gameRunning) {
         audioStarted = true;
-        bgMusic.play().catch(() => {});
+        startMusic();
     }
 }
-// Start music on first user interaction
-window.addEventListener("keydown", startBgMusic, { once: false });
-canvas.addEventListener("touchstart", startBgMusic, { once: false });
-canvas.addEventListener("click", startBgMusic, { once: false });
+window.addEventListener("keydown", tryStartMusic);
+canvas.addEventListener("click", tryStartMusic);
+canvas.addEventListener("touchstart", tryStartMusic);
+
+// ==================== GAME STATE ====================
 
 let score = 0, lives = 3, powerMode = false, powerTimer = 0;
 let mouthOpen = 0, gameRunning = true;
@@ -246,7 +510,7 @@ let ghosts = [
     { x:10*size, y:15*size, color:"#FFB852", dir:"down", startX:10*size, startY:15*size }
 ];
 
-// ==================== TOOLTIP POSITIONING (FIXED) ====================
+// ==================== TOOLTIP POSITIONING ====================
 
 function positionTooltip(e, rule) {
     const ttWidth = 310;
@@ -255,7 +519,6 @@ function positionTooltip(e, rule) {
     const viewW = window.innerWidth;
     const viewH = window.innerHeight;
 
-    // Get bubble position on screen
     const canvasRect = canvas.getBoundingClientRect();
     const scaleX = canvasRect.width / canvas.width;
     const scaleY = canvasRect.height / canvas.height;
@@ -265,21 +528,17 @@ function positionTooltip(e, rule) {
     let tx, ty;
     let arrowClass = "";
 
-    // Try RIGHT of bubble first
     tx = bubbleScreenX + 30;
     ty = bubbleScreenY - ttHeight / 2;
 
     if (tx + ttWidth + pad > viewW) {
-        // Try LEFT of bubble
         tx = bubbleScreenX - ttWidth - 30;
         arrowClass = "arrow-right";
         if (tx < pad) {
-            // Try BELOW bubble
             tx = bubbleScreenX - ttWidth / 2;
             ty = bubbleScreenY + 30;
             arrowClass = "arrow-top";
             if (ty + ttHeight + pad > viewH) {
-                // Try ABOVE bubble
                 ty = bubbleScreenY - ttHeight - 30;
                 arrowClass = "arrow-bottom";
             }
@@ -288,7 +547,6 @@ function positionTooltip(e, rule) {
         arrowClass = "arrow-left";
     }
 
-    // Clamp to viewport
     if (tx < pad) tx = pad;
     if (tx + ttWidth > viewW - pad) tx = viewW - ttWidth - pad;
     if (ty < pad) ty = pad;
@@ -322,7 +580,6 @@ canvas.addEventListener("mousemove", function(e) {
         hoveredRule = found;
         buildTooltip(found);
         tooltipEl.style.display = "block";
-        // Need small delay so offsetHeight is calculated
         requestAnimationFrame(() => positionTooltip(e, found));
     } else if (found && found === hoveredRule) {
         positionTooltip(e, found);
@@ -368,16 +625,13 @@ function drawTooltipNL(rule) {
     const margin = 25;
     const toX = v => margin + ((v - minV) / (maxV - minV)) * (w - margin * 2);
 
-    // Main line
     g.strokeStyle = "#555"; g.lineWidth = 2;
     g.beginPath(); g.moveTo(margin - 5, 38); g.lineTo(w - margin + 5, 38); g.stroke();
 
-    // Arrow heads on line
     g.fillStyle = "#555";
     g.beginPath(); g.moveTo(margin - 10, 38); g.lineTo(margin - 3, 34); g.lineTo(margin - 3, 42); g.fill();
     g.beginPath(); g.moveTo(w - margin + 10, 38); g.lineTo(w - margin + 3, 34); g.lineTo(w - margin + 3, 42); g.fill();
 
-    // Ticks & numbers
     for (let i = Math.ceil(minV); i <= Math.floor(maxV); i++) {
         let x = toX(i);
         let isZero = i === 0;
@@ -393,7 +647,6 @@ function drawTooltipNL(rule) {
         g.fillText(i, x, 57);
     }
 
-    // Curved arrow
     let sx = toX(rule.nlStart);
     let ex = toX(rule.nlResult);
 
@@ -405,7 +658,6 @@ function drawTooltipNL(rule) {
     g.stroke();
     g.setLineDash([]);
 
-    // Arrow head
     let arrowDir = ex > sx ? 1 : -1;
     g.fillStyle = "#00ff88";
     g.beginPath();
@@ -414,17 +666,14 @@ function drawTooltipNL(rule) {
     g.lineTo(ex + arrowDir * 2, 18);
     g.fill();
 
-    // Start dot
     g.fillStyle = "#e94560";
     g.beginPath(); g.arc(sx, 38, 5, 0, Math.PI * 2); g.fill();
     g.fillStyle = "#fff"; g.font = "bold 8px Arial";
     g.fillText("START", sx, 15);
 
-    // End dot
     g.fillStyle = "#00ff88";
     g.beginPath(); g.arc(ex, 38, 5, 0, Math.PI * 2); g.fill();
 
-    // Move label
     let moveLabel = rule.nlMove > 0 ? `+${rule.nlMove} →` : `${rule.nlMove} ←`;
     g.fillStyle = "#ffcc00"; g.font = "bold 11px Arial";
     g.fillText(moveLabel, (sx + ex) / 2, 10);
@@ -526,7 +775,6 @@ function draw() {
         }
     }
 
-    // Math rule bubbles
     let pulse = Math.sin(Date.now() / 300) * 0.3 + 0.7;
     mathRules.forEach(rule => {
         if (rule.eaten) return;
@@ -543,7 +791,6 @@ function draw() {
         ctx.fillStyle = "white"; ctx.font = "bold 8px Arial"; ctx.textAlign = "center";
         ctx.fillText(rule.text, rule.c*size+10, rule.r*size+13);
 
-        // Hover ring
         if (hoveredRule === rule) {
             ctx.beginPath(); ctx.arc(rule.c*size+10, rule.r*size+10, 24, 0, Math.PI*2);
             ctx.strokeStyle = "#ffcc00"; ctx.lineWidth = 2;
@@ -652,6 +899,7 @@ function update() {
             lastEatTimer = 50;
             score += 10;
             document.getElementById("score").innerText = score;
+            playEatSound(isPlus);
         }
 
         mathRules.forEach(rule => {
@@ -665,9 +913,9 @@ function update() {
                 document.getElementById("score").innerText = score;
                 let learned = mathRules.filter(r => r.eaten).length;
                 document.getElementById("rules-count").innerText = learned;
-                // Hide tooltip since bubble is eaten
                 hoveredRule = null;
                 tooltipEl.style.display = "none";
+                playPowerUpSound();
             }
         });
     }
@@ -690,6 +938,7 @@ function update() {
             if (powerMode) {
                 score += 200; g.x = g.startX; g.y = g.startY;
                 document.getElementById("score").innerText = score;
+                playGhostEatSound();
             } else {
                 lives--;
                 document.getElementById("lives").innerText = "🟡".repeat(Math.max(lives, 0));
@@ -700,10 +949,10 @@ function update() {
                     document.getElementById("final-math").innerText = (mathValue >= 0 ? "+" : "") + mathValue;
                     document.getElementById("overlay").style.display = "flex";
                     tooltipEl.style.display = "none";
-                    // Stop background music and play game over sound
-                    bgMusic.pause();
-                    bgMusic.currentTime = 0;
-                    gameOverSound.play().catch(() => {});
+                    stopMusic();
+                    playGameOverSound();
+                } else {
+                    playLifeLostSound();
                 }
             }
         }
