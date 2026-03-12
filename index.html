@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>Math Pacman - Integer Addition</title>
@@ -105,10 +105,10 @@
     </div>
 
     <div id="overlay">
-        <div>🎮 Khel Khatam!</div>
-        <div class="sub">Tumne <span id="rules-learned" style="color:#0f0">0</span> / 5 integer rules seekhe</div>
+        <div>🎮 Game Over!</div>
+        <div class="sub">You learned <span id="rules-learned" style="color:#0f0">0</span> / 5 integer rules</div>
         <div class="sub">Integer Position: <span id="final-math" style="color:#ffcc00">0</span></div>
-        <button onclick="location.reload()">PHIR SE SHURU KAREIN</button>
+        <button onclick="location.reload()">PLAY AGAIN</button>
     </div>
 
     <div id="bottom-ui">
@@ -126,6 +126,26 @@ const nlCtx = nlCanvas.getContext("2d");
 const tooltipEl = document.getElementById("tooltip");
 const size = 20;
 
+// ==================== AUDIO ====================
+const bgMusic = new Audio("during_game.mpeg");
+bgMusic.loop = true;
+bgMusic.volume = 0.5;
+
+const gameOverSound = new Audio("after_game_ends.ogg");
+gameOverSound.volume = 0.7;
+
+let audioStarted = false;
+function startBgMusic() {
+    if (!audioStarted) {
+        audioStarted = true;
+        bgMusic.play().catch(() => {});
+    }
+}
+// Start music on first user interaction
+window.addEventListener("keydown", startBgMusic, { once: false });
+canvas.addEventListener("touchstart", startBgMusic, { once: false });
+canvas.addEventListener("click", startBgMusic, { once: false });
+
 let score = 0, lives = 3, powerMode = false, powerTimer = 0;
 let mouthOpen = 0, gameRunning = true;
 let mathValue = 0;
@@ -141,57 +161,57 @@ const mathRules = [
         r:2, c:10, text:"5+(-1)=4", color:"#FF4D4D", eaten:false,
         nlStart:5, nlMove:-1, nlResult:4,
         steps: [
-            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+5</b> se shuru karo", math:"+5" },
-            { label:"Step 2 — Operation Samjho", text:"<b>+(-1)</b> ka matlab hai: <b>1 ghatao</b>", math:"+(-1) → minus 1" },
-            { label:"Step 3 — Number Line pe Chalo", text:"+5 se <b>1 kadam LEFT</b> jao (minus = left)", math:"5 ← 1" },
-            { label:"Step 4 — Jawab!", text:"Hum <b>4</b> pe pahunch gaye!", math:"5 + (-1) = 4 ✅" }
+            { label:"Step 1 — First Number", text:"Start at <b>+5</b> on the number line", math:"+5" },
+            { label:"Step 2 — Understand the Operation", text:"<b>+(-1)</b> means: <b>subtract 1</b>", math:"+(-1) → minus 1" },
+            { label:"Step 3 — Move on the Number Line", text:"From +5, move <b>1 step LEFT</b> (minus = left)", math:"5 ← 1" },
+            { label:"Step 4 — Answer!", text:"We reach <b>4</b>!", math:"5 + (-1) = 4 ✅" }
         ],
-        rule: "➕ + (➖) = Fark nikalo, bade ka sign rakho"
+        rule: "➕ + (➖) = Find the difference, keep the sign of the larger number"
     },
     {
         r:4, c:13, text:"-1+5=+4", color:"#FF6D6D", eaten:false,
         nlStart:-1, nlMove:5, nlResult:4,
         steps: [
-            { label:"Step 1 — Pehla Number", text:"Number line pe <b>-1</b> se shuru karo (negative side!)", math:"-1" },
-            { label:"Step 2 — Operation Samjho", text:"<b>+5</b> ka matlab hai: <b>5 jodo</b> (plus = right)", math:"+5 → right chalo" },
-            { label:"Step 3 — Number Line pe Chalo", text:"-1 se <b>5 kadam RIGHT</b> chalo", math:"-1 → 0 → 1 → 2 → 3 → 4" },
-            { label:"Step 4 — Jawab!", text:"Hum <b>+4</b> pe pahunch gaye!", math:"-1 + 5 = +4 ✅" }
+            { label:"Step 1 — First Number", text:"Start at <b>-1</b> on the number line (negative side!)", math:"-1" },
+            { label:"Step 2 — Understand the Operation", text:"<b>+5</b> means: <b>add 5</b> (plus = right)", math:"+5 → move right" },
+            { label:"Step 3 — Move on the Number Line", text:"From -1, move <b>5 steps RIGHT</b>", math:"-1 → 0 → 1 → 2 → 3 → 4" },
+            { label:"Step 4 — Answer!", text:"We reach <b>+4</b>!", math:"-1 + 5 = +4 ✅" }
         ],
-        rule: "➖ + ➕ = Fark nikalo, bade ka sign rakho"
+        rule: "➖ + ➕ = Find the difference, keep the sign of the larger number"
     },
     {
         r:9, c:13, text:"+1+1=+2", color:"#FFFF4D", eaten:false,
         nlStart:1, nlMove:1, nlResult:2,
         steps: [
-            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+1</b> se shuru karo", math:"+1" },
-            { label:"Step 2 — Operation Samjho", text:"<b>+1</b> ka matlab hai: <b>1 aur jodo</b>", math:"+1 → right chalo" },
-            { label:"Step 3 — Number Line pe Chalo", text:"+1 se <b>1 kadam RIGHT</b> chalo", math:"1 → 2" },
-            { label:"Step 4 — Jawab!", text:"Bahut easy! Dono positive = jodo!", math:"+1 + 1 = +2 ✅" }
+            { label:"Step 1 — First Number", text:"Start at <b>+1</b> on the number line", math:"+1" },
+            { label:"Step 2 — Understand the Operation", text:"<b>+1</b> means: <b>add 1 more</b>", math:"+1 → move right" },
+            { label:"Step 3 — Move on the Number Line", text:"From +1, move <b>1 step RIGHT</b>", math:"1 → 2" },
+            { label:"Step 4 — Answer!", text:"Very easy! Both positive = just add!", math:"+1 + 1 = +2 ✅" }
         ],
-        rule: "➕ + ➕ = Dono jodo, sign POSITIVE (+) rahega"
+        rule: "➕ + ➕ = Add both, sign stays POSITIVE (+)"
     },
     {
         r:10, c:15, text:"+1+(-3)=-2", color:"#4DFF4D", eaten:false,
         nlStart:1, nlMove:-3, nlResult:-2,
         steps: [
-            { label:"Step 1 — Pehla Number", text:"Number line pe <b>+1</b> se shuru karo", math:"+1" },
-            { label:"Step 2 — Operation Samjho", text:"<b>+(-3)</b> ka matlab hai: <b>3 ghatao</b>", math:"+(-3) → minus 3" },
-            { label:"Step 3 — Number Line pe Chalo", text:"+1 se <b>3 kadam LEFT</b> chalo", math:"1 → 0 → -1 → -2" },
-            { label:"Step 4 — Jawab!", text:"Hum <b>-2</b> pe pahunch gaye! (Negative side mein!)", math:"+1 + (-3) = -2 ✅" }
+            { label:"Step 1 — First Number", text:"Start at <b>+1</b> on the number line", math:"+1" },
+            { label:"Step 2 — Understand the Operation", text:"<b>+(-3)</b> means: <b>subtract 3</b>", math:"+(-3) → minus 3" },
+            { label:"Step 3 — Move on the Number Line", text:"From +1, move <b>3 steps LEFT</b>", math:"1 → 0 → -1 → -2" },
+            { label:"Step 4 — Answer!", text:"We reach <b>-2</b>! (Into the negative side!)", math:"+1 + (-3) = -2 ✅" }
         ],
-        rule: "➕ + (➖) = Fark nikalo, bade (3) ka sign (-) rakho"
+        rule: "➕ + (➖) = Find the difference, keep the sign of the larger (3) → (-)"
     },
     {
         r:17, c:10, text:"-5+(-1)=-6", color:"#AA4DFF", eaten:false,
         nlStart:-5, nlMove:-1, nlResult:-6,
         steps: [
-            { label:"Step 1 — Pehla Number", text:"Number line pe <b>-5</b> se shuru karo (deep negative!)", math:"-5" },
-            { label:"Step 2 — Operation Samjho", text:"<b>+(-1)</b> ka matlab hai: <b>1 aur ghatao</b>", math:"+(-1) → minus 1" },
-            { label:"Step 3 — Yaad Rakho!", text:"Negative + Negative = <b>dono jodo, sign negative rakho!</b>", math:"(-) + (-) = minus" },
-            { label:"Step 4 — Number Line pe Chalo", text:"-5 se <b>1 kadam LEFT</b> chalo (aur negative!)", math:"-5 → -6" },
-            { label:"Step 5 — Jawab!", text:"Hum <b>-6</b> pe pahunch gaye!", math:"-5 + (-1) = -6 ✅" }
+            { label:"Step 1 — First Number", text:"Start at <b>-5</b> on the number line (deep negative!)", math:"-5" },
+            { label:"Step 2 — Understand the Operation", text:"<b>+(-1)</b> means: <b>subtract 1 more</b>", math:"+(-1) → minus 1" },
+            { label:"Step 3 — Remember!", text:"Negative + Negative = <b>add both, keep the sign negative!</b>", math:"(-) + (-) = minus" },
+            { label:"Step 4 — Move on the Number Line", text:"From -5, move <b>1 step LEFT</b> (even more negative!)", math:"-5 → -6" },
+            { label:"Step 5 — Answer!", text:"We reach <b>-6</b>!", math:"-5 + (-1) = -6 ✅" }
         ],
-        rule: "➖ + (➖) = Dono jodo, sign NEGATIVE (-) rahega"
+        rule: "➖ + (➖) = Add both, sign stays NEGATIVE (-)"
     }
 ];
 
@@ -330,7 +350,7 @@ function buildTooltip(rule) {
     });
 
     html += `<div class="tt-rule">💡 Rule: ${rule.rule}</div>`;
-    html += `<div class="tt-footer">🎮 Isse khao → Power Mode ON + 100 Points!</div>`;
+    html += `<div class="tt-footer">🎮 Eat this → Power Mode ON + 100 Points!</div>`;
 
     tooltipEl.innerHTML = html;
     requestAnimationFrame(() => drawTooltipNL(rule));
@@ -529,7 +549,7 @@ function draw() {
             ctx.strokeStyle = "#ffcc00"; ctx.lineWidth = 2;
             ctx.setLineDash([4, 4]); ctx.stroke(); ctx.setLineDash([]);
             ctx.fillStyle = "#ffcc00"; ctx.font = "bold 7px Arial";
-            ctx.fillText("👆 PADHO!", rule.c*size+10, rule.r*size-14);
+            ctx.fillText("👆 READ!", rule.c*size+10, rule.r*size-14);
         }
     });
 
@@ -589,7 +609,7 @@ function draw() {
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle = "#ffcc00"; ctx.font = "bold 14px Arial"; ctx.textAlign = "center";
-        ctx.fillText("✅ RULE SEEKH LIYA!", 210, 152);
+        ctx.fillText("✅ RULE LEARNED!", 210, 152);
 
         ctx.fillStyle = "#fff"; ctx.font = "bold 22px Arial";
         ctx.fillText(learnedRule.text, 210, 182);
@@ -598,7 +618,7 @@ function draw() {
         ctx.fillText(learnedRule.rule, 210, 205);
 
         ctx.fillStyle = "#00ff88"; ctx.font = "bold 10px Arial";
-        ctx.fillText("🔥 Power Mode ON! Bhooton ko khao!", 210, 228);
+        ctx.fillText("🔥 Power Mode ON! Eat the ghosts!", 210, 228);
 
         ctx.restore();
     }
@@ -680,6 +700,10 @@ function update() {
                     document.getElementById("final-math").innerText = (mathValue >= 0 ? "+" : "") + mathValue;
                     document.getElementById("overlay").style.display = "flex";
                     tooltipEl.style.display = "none";
+                    // Stop background music and play game over sound
+                    bgMusic.pause();
+                    bgMusic.currentTime = 0;
+                    gameOverSound.play().catch(() => {});
                 }
             }
         }
